@@ -2,23 +2,29 @@
 #include <WiFi.h>
 #include "config.h"
 #include "ZoneManager.h"
+#include "TankManager.h"
 #include "sensors/SoilSensor.h"
 #include "sensors/AmbientSensor.h"
+#include "sensors/TankSensor.h"
 #include "mqtt/MqttClient.h"
 #include "irrigation/IrrigationController.h"
 #include "schedule/LocalSchedule.h"
 #include "ota/OtaUpdater.h"
 
 ZoneManager          zoneManager;
+TankManager          tankManager;
 AmbientSensor        ambientSensor;
 IrrigationController irrigationCtrl;
 LocalSchedule        localSchedule;
 MqttClient           mqttClient;
 OtaUpdater           otaUpdater;
 
-// Sensors de terra dinàmics (allotjats al heap)
+// Sensors de terra i dipòsit (allotjats al heap)
 static SoilSensor* soilSensors[MAX_ZONES];
 static int         numZones = 0;
+
+static TankSensor* tankSensors[MAX_TANKS];
+static int         numTanks = 0;
 
 unsigned long lastPublishMs = 0;
 
@@ -48,11 +54,22 @@ void setup() {
     soilSensors[i]->begin();
   }
 
+  // Carrega configuració de dipòsits (NVS)
+  tankManager.loadFromNVS();
+  numTanks = tankManager.tankCount();
+
+  // Crea sensors de dipòsit per cada dipòsit configurat
+  for (int i = 0; i < numTanks; i++) {
+    tankSensors[i] = new TankSensor(tankManager.tank(i));
+    tankSensors[i]->begin();
+  }
+
   connectWifi();
 
   mqttClient.setIrrigationController(&irrigationCtrl);
   mqttClient.setOtaUpdater(&otaUpdater);
   mqttClient.setZoneManager(&zoneManager);
+  mqttClient.setTankManager(&tankManager);
   mqttClient.connect();
 
   localSchedule.loadFromNVS();
@@ -61,7 +78,7 @@ void setup() {
 
   lastPublishMs = millis() - PUBLISH_INTERVAL_MS;
 
-  Serial.printf("[smart-garden] Setup complet — %d zones actives\n", numZones);
+  Serial.printf("[smart-garden] Setup complet — %d zones, %d dipòsits actius\n", numZones, numTanks);
 }
 
 void loop() {
@@ -88,5 +105,13 @@ void loop() {
     float light  = ambientSensor.readLightLux();
     Serial.printf("[sensors] Temp: %.1fC | HumAmb: %.1f%% | Llum: %.0flux\n", temp, humAmb, light);
     mqttClient.publishAmbient(temp, humAmb, light);
+
+    for (int i = 0; i < numTanks; i++) {
+      const TankConfig& tc = tankManager.tank(i);
+      TankLevel lvl = tankSensors[i]->read();
+      Serial.printf("[sensors] Dipòsit %d: raw=%.1f pct=%.1f estat=%s\n",
+                    tc.id, lvl.rawValue, lvl.levelPct, lvl.state);
+      mqttClient.publishTank(tc.id, lvl.rawValue, lvl.levelPct, lvl.state);
+    }
   }
 }

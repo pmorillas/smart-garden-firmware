@@ -5,6 +5,7 @@
 #include "../irrigation/IrrigationController.h"
 #include "../ota/OtaUpdater.h"
 #include "../ZoneManager.h"
+#include "../TankManager.h"
 
 class MqttClient {
 public:
@@ -13,8 +14,10 @@ public:
   void setIrrigationController(IrrigationController* ctrl);
   void setOtaUpdater(OtaUpdater* ota);
   void setZoneManager(ZoneManager* zm);
+  void setTankManager(TankManager* tm);
   void publishSoil(int zoneId, float humidityPct);
   void publishAmbient(float tempC, float humidityPct, float lightLux);
+  void publishTank(int tankId, float rawValue, float levelPct, const char* state);
   void publishRegister();
 
 private:
@@ -24,6 +27,7 @@ private:
   static IrrigationController* _irrigCtrl;
   static OtaUpdater*            _otaUpdater;
   static ZoneManager*           _zoneManager;
+  static TankManager*           _tankManager;
 
   // OTA pendent (processada al loop, no al callback MQTT)
   static bool _otaPending;
@@ -34,9 +38,14 @@ private:
   static bool _zoneConfigPending;
   static char _zoneConfigBuf[1024];
 
+  // Tank config pendent (processada al loop per evitar recursió MQTT)
+  static bool _tankConfigPending;
+  static char _tankConfigBuf[2048];
+
   void _reconnect();
   void _performOtaUpdate();
   void _performZoneConfigUpdate();
+  void _performTankConfigUpdate();
   void _publishOtaStatus(const char* status, const char* error = nullptr);
   void _publishZoneConfigAck(const char* status);
   static void _onMessage(char* topic, byte* payload, unsigned int length);
