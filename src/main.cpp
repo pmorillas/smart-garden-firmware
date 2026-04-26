@@ -6,6 +6,7 @@
 #include "mqtt/MqttClient.h"
 #include "irrigation/IrrigationController.h"
 #include "schedule/LocalSchedule.h"
+#include "ota/OtaUpdater.h"
 
 SoilSensor soilZone1(SOIL_ZONE1_PIN_A, SOIL_ZONE1_PIN_B);
 SoilSensor soilZone2(SOIL_ZONE2_PIN_A, SOIL_ZONE2_PIN_B);
@@ -13,6 +14,7 @@ AmbientSensor ambientSensor;
 IrrigationController irrigationCtrl;
 LocalSchedule localSchedule;
 MqttClient mqttClient;
+OtaUpdater otaUpdater;
 
 unsigned long lastPublishMs = 0;
 
@@ -33,6 +35,7 @@ void setup() {
 
   connectWifi();
   mqttClient.setIrrigationController(&irrigationCtrl);
+  mqttClient.setOtaUpdater(&otaUpdater);
   mqttClient.connect();
   localSchedule.loadFromNVS();
 

@@ -2,10 +2,18 @@
 #include "../config.h"
 #include <ArduinoJson.h>
 
-IrrigationController* MqttClient::_irrigCtrl = nullptr;
+IrrigationController* MqttClient::_irrigCtrl  = nullptr;
+OtaUpdater*           MqttClient::_otaUpdater  = nullptr;
+bool                  MqttClient::_otaPending   = false;
+char                  MqttClient::_otaUrl[256]  = {};
+char                  MqttClient::_otaVersion[24] = {};
 
 void MqttClient::setIrrigationController(IrrigationController* ctrl) {
   _irrigCtrl = ctrl;
+}
+
+void MqttClient::setOtaUpdater(OtaUpdater* ota) {
+  _otaUpdater = ota;
 }
 
 void MqttClient::connect() {
@@ -19,6 +27,11 @@ void MqttClient::loop() {
     _reconnect();
   }
   _mqtt.loop();
+
+  if (_otaPending) {
+    _otaPending = false;
+    _performOtaUpdate();
+  }
 }
 
 void MqttClient::publishRegister() {
@@ -29,7 +42,6 @@ void MqttClient::publishRegister() {
 
   char buf[192];
   serializeJson(doc, buf);
-  // retained=true: el backend rep el registre fins i tot si es connecta després
   _mqtt.publish("smartgarden/devices/register", buf, true);
   Serial.printf("[MQTT] Registre publicat: MAC=%s\n", WiFi.macAddress().c_str());
 }
@@ -63,18 +75,50 @@ void MqttClient::publishAmbient(float tempC, float humidityPct, float lightLux) 
   _mqtt.publish("smartgarden/sensors/ambient", buf);
 }
 
+void MqttClient::_publishOtaStatus(const char* status, const char* error) {
+  JsonDocument doc;
+  doc["mac"]     = WiFi.macAddress();
+  doc["status"]  = status;
+  doc["version"] = _otaVersion;
+  if (error) doc["error"] = error;
+
+  char buf[256];
+  serializeJson(doc, buf);
+  _mqtt.publish("smartgarden/devices/ota_status", buf);
+  Serial.printf("[OTA] Status publicat: %s\n", status);
+}
+
+void MqttClient::_performOtaUpdate() {
+  if (_otaUpdater == nullptr) return;
+
+  Serial.printf("[OTA] Actualitzant a v%s des de %s\n", _otaVersion, _otaUrl);
+  _publishOtaStatus("downloading");
+
+  bool ok = _otaUpdater->update(_otaUrl);
+
+  if (ok) {
+    _publishOtaStatus("success");
+    delay(500);
+    ESP.restart();
+  } else {
+    _publishOtaStatus("failed", "Error durant la descàrrega o el flash");
+    Serial.println("[OTA] Actualització fallida, continuant operació normal");
+  }
+}
+
 void MqttClient::_reconnect() {
   Serial.printf("[MQTT] Connectant a %s:%d...\n", MQTT_BROKER, MQTT_PORT);
   unsigned long backoff = 1000;
 
-  // Client ID únic basat en la MAC — evita que múltiples ESP32 es desconnectin entre ells
   String clientId = String("esp32-") + WiFi.macAddress();
+  String otaTopic = String("smartgarden/ota/") + WiFi.macAddress();
 
   while (!_mqtt.connected()) {
     if (_mqtt.connect(clientId.c_str())) {
       Serial.printf("[MQTT] Connectat com a %s\n", clientId.c_str());
       _mqtt.subscribe("smartgarden/control/#");
       _mqtt.subscribe("smartgarden/config/push");
+      _mqtt.subscribe(otaTopic.c_str());
       publishRegister();
     } else {
       Serial.printf("[MQTT] Error %d, reintentant en %lums\n", _mqtt.state(), backoff);
@@ -85,21 +129,42 @@ void MqttClient::_reconnect() {
 }
 
 void MqttClient::_onMessage(char* topic, byte* payload, unsigned int length) {
-  if (_irrigCtrl == nullptr) return;
-
   JsonDocument doc;
   if (deserializeJson(doc, payload, length) != DeserializationError::Ok) {
-    Serial.println("[MQTT] JSON invàlid al missatge de control");
+    Serial.println("[MQTT] JSON invàlid");
     return;
   }
 
-  const char* action = doc["action"] | "";
-
   String topicStr(topic);
+
+  // OTA update
+  if (topicStr.startsWith("smartgarden/ota/")) {
+    const char* version = doc["version"] | "";
+    const char* url     = doc["url"]     | "";
+    if (strlen(url) == 0 || strlen(version) == 0) return;
+
+    // No tornem a actualitzar si ja tenim la mateixa versió
+    if (strcmp(version, FIRMWARE_VERSION) == 0) {
+      Serial.printf("[OTA] Versió %s ja instal·lada, ignorant\n", version);
+      return;
+    }
+
+    strncpy(_otaUrl,     url,     sizeof(_otaUrl)     - 1);
+    strncpy(_otaVersion, version, sizeof(_otaVersion) - 1);
+    _otaUrl[sizeof(_otaUrl) - 1]         = '\0';
+    _otaVersion[sizeof(_otaVersion) - 1] = '\0';
+    _otaPending = true;
+    Serial.printf("[OTA] Actualització pendent: v%s\n", version);
+    return;
+  }
+
+  // Control de reg
+  if (_irrigCtrl == nullptr) return;
   if (!topicStr.startsWith("smartgarden/control/")) return;
   int zoneId = topicStr.substring(20).toInt();
   if (zoneId < 1 || zoneId > 2) return;
 
+  const char* action = doc["action"] | "";
   if (strcmp(action, "on") == 0) {
     unsigned long durationMs = (unsigned long)(doc["duration_seconds"] | 60) * 1000UL;
     _irrigCtrl->startZone(zoneId, durationMs);
