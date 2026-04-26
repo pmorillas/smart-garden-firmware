@@ -1,27 +1,31 @@
 #pragma once
 
 // WiFi
-#define WIFI_SSID       "YOUR_SSID"
-#define WIFI_PASSWORD   "YOUR_PASSWORD"
+#define WIFI_SSID       "Pararols4-1er2na"
+#define WIFI_PASSWORD   "hML3vpH5ejKS"
+
+// Firmware
+#define FIRMWARE_VERSION "1.1.0"
 
 // MQTT
-#define MQTT_BROKER     "192.168.1.X"   // IP del servidor al Tailscale o xarxa local
-#define MQTT_PORT       1883
-#define MQTT_CLIENT_ID  "esp32-smartgarden"
+#define MQTT_BROKER  "192.168.1.162"
+#define MQTT_PORT    1883
+// MQTT_CLIENT_ID és dinàmic (basat en MAC) — generat a MqttClient::_reconnect()
 
-// Pins sensors de terra
-#define SOIL_ZONE1_PIN_A  34
-#define SOIL_ZONE1_PIN_B  35
-#define SOIL_ZONE2_PIN_A  32
-#define SOIL_ZONE2_PIN_B  33
+// Pins sensors de terra (analògics ADC1 — compatibles amb WiFi)
+#define SOIL_ZONE1_PIN_A  32
+#define SOIL_ZONE1_PIN_B  33
+#define SOIL_ZONE2_PIN_A  34
+#define SOIL_ZONE2_PIN_B  35
 
-// Pin DHT22 (temperatura + humitat ambient)
-#define DHT22_PIN         27
+// I2C (SHT21/HTU21 + BH1750)
+#define I2C_SDA_PIN  21
+#define I2C_SCL_PIN  22
 
 // Pins relés (actius LOW)
-#define RELAY_ZONE1_PIN   26
-#define RELAY_ZONE2_PIN   25
+#define RELAY_ZONE1_PIN  14
+#define RELAY_ZONE2_PIN  27
 
 // Intervals
-#define PUBLISH_INTERVAL_MS  (5 * 60 * 1000UL)   // 5 minuts
-#define MQTT_RECONNECT_MAX_MS  60000              // backoff màxim 60s
+#define PUBLISH_INTERVAL_MS    (10 * 1000UL)                     // (5 * 60 * 1000UL)   // 5 minuts
+#define MQTT_RECONNECT_MAX_MS  60000                // backoff màxim 60s
