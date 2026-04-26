@@ -1,0 +1,7 @@
+.pio/
+.vscode/
+*.o
+*.d
+build/
+.env
+src/config_local.h
