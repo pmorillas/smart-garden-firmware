@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include "config.h"
+#include "ZoneManager.h"
 #include "sensors/SoilSensor.h"
 #include "sensors/AmbientSensor.h"
 #include "mqtt/MqttClient.h"
@@ -8,13 +9,16 @@
 #include "schedule/LocalSchedule.h"
 #include "ota/OtaUpdater.h"
 
-SoilSensor soilZone1(SOIL_ZONE1_PIN_A, SOIL_ZONE1_PIN_B);
-SoilSensor soilZone2(SOIL_ZONE2_PIN_A, SOIL_ZONE2_PIN_B);
-AmbientSensor ambientSensor;
+ZoneManager          zoneManager;
+AmbientSensor        ambientSensor;
 IrrigationController irrigationCtrl;
-LocalSchedule localSchedule;
-MqttClient mqttClient;
-OtaUpdater otaUpdater;
+LocalSchedule        localSchedule;
+MqttClient           mqttClient;
+OtaUpdater           otaUpdater;
+
+// Sensors de terra dinàmics (allotjats al heap)
+static SoilSensor* soilSensors[MAX_ZONES];
+static int         numZones = 0;
 
 unsigned long lastPublishMs = 0;
 
@@ -33,21 +37,31 @@ void setup() {
   delay(500);
   Serial.println("\n[smart-garden] Iniciant...");
 
+  // Carrega configuració de zones (NVS → fallback a config.h)
+  zoneManager.loadFromNVS();
+  numZones = zoneManager.zoneCount();
+
+  // Crea sensors de terra per cada zona configurada
+  for (int i = 0; i < numZones; i++) {
+    const ZoneConfig& z = zoneManager.zone(i);
+    soilSensors[i] = new SoilSensor(z.soilPinA, z.soilPinB);
+    soilSensors[i]->begin();
+  }
+
   connectWifi();
+
   mqttClient.setIrrigationController(&irrigationCtrl);
   mqttClient.setOtaUpdater(&otaUpdater);
+  mqttClient.setZoneManager(&zoneManager);
   mqttClient.connect();
+
   localSchedule.loadFromNVS();
-
-  soilZone1.begin();
-  soilZone2.begin();
   ambientSensor.begin();
-  irrigationCtrl.begin();
+  irrigationCtrl.begin(zoneManager);
 
-  // Publica immediatament al arrancar sense esperar 5 minuts
   lastPublishMs = millis() - PUBLISH_INTERVAL_MS;
 
-  Serial.println("[smart-garden] Setup complet");
+  Serial.printf("[smart-garden] Setup complet — %d zones actives\n", numZones);
 }
 
 void loop() {
@@ -62,17 +76,17 @@ void loop() {
   if (millis() - lastPublishMs >= PUBLISH_INTERVAL_MS) {
     lastPublishMs = millis();
 
-    float humZone1 = soilZone1.readHumidityPct();
-    float humZone2 = soilZone2.readHumidityPct();
-    float temp     = ambientSensor.readTemperature();
-    float humAmb   = ambientSensor.readHumidity();
-    float light    = ambientSensor.readLightLux();
+    for (int i = 0; i < numZones; i++) {
+      const ZoneConfig& z = zoneManager.zone(i);
+      float hum = soilSensors[i]->readHumidityPct();
+      Serial.printf("[sensors] Zona %d: %.1f%%\n", z.id, hum);
+      mqttClient.publishSoil(z.id, hum);
+    }
 
-    Serial.printf("[sensors] Zona1: %.1f%% | Zona2: %.1f%% | Temp: %.1fC | HumAmb: %.1f%% | Llum: %.0flux\n",
-                  humZone1, humZone2, temp, humAmb, light);
-
-    mqttClient.publishSoil(1, humZone1);
-    mqttClient.publishSoil(2, humZone2);
+    float temp   = ambientSensor.readTemperature();
+    float humAmb = ambientSensor.readHumidity();
+    float light  = ambientSensor.readLightLux();
+    Serial.printf("[sensors] Temp: %.1fC | HumAmb: %.1f%% | Llum: %.0flux\n", temp, humAmb, light);
     mqttClient.publishAmbient(temp, humAmb, light);
   }
 }

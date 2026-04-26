@@ -2,22 +2,22 @@
 #include "../config.h"
 #include <ArduinoJson.h>
 
-IrrigationController* MqttClient::_irrigCtrl  = nullptr;
-OtaUpdater*           MqttClient::_otaUpdater  = nullptr;
-bool                  MqttClient::_otaPending   = false;
-char                  MqttClient::_otaUrl[256]  = {};
-char                  MqttClient::_otaVersion[24] = {};
+IrrigationController* MqttClient::_irrigCtrl      = nullptr;
+OtaUpdater*           MqttClient::_otaUpdater      = nullptr;
+ZoneManager*          MqttClient::_zoneManager     = nullptr;
+bool                  MqttClient::_otaPending       = false;
+char                  MqttClient::_otaUrl[256]      = {};
+char                  MqttClient::_otaVersion[24]   = {};
+bool                  MqttClient::_zoneConfigPending = false;
+char                  MqttClient::_zoneConfigBuf[1024] = {};
 
-void MqttClient::setIrrigationController(IrrigationController* ctrl) {
-  _irrigCtrl = ctrl;
-}
-
-void MqttClient::setOtaUpdater(OtaUpdater* ota) {
-  _otaUpdater = ota;
-}
+void MqttClient::setIrrigationController(IrrigationController* ctrl) { _irrigCtrl  = ctrl; }
+void MqttClient::setOtaUpdater(OtaUpdater* ota)                       { _otaUpdater = ota; }
+void MqttClient::setZoneManager(ZoneManager* zm)                      { _zoneManager = zm; }
 
 void MqttClient::connect() {
   _mqtt.setServer(MQTT_BROKER, MQTT_PORT);
+  _mqtt.setBufferSize(1024);
   _mqtt.setCallback(_onMessage);
   _reconnect();
 }
@@ -27,6 +27,11 @@ void MqttClient::loop() {
     _reconnect();
   }
   _mqtt.loop();
+
+  if (_zoneConfigPending) {
+    _zoneConfigPending = false;
+    _performZoneConfigUpdate();
+  }
 
   if (_otaPending) {
     _otaPending = false;
@@ -88,6 +93,21 @@ void MqttClient::_publishOtaStatus(const char* status, const char* error) {
   Serial.printf("[OTA] Status publicat: %s\n", status);
 }
 
+void MqttClient::_publishZoneConfigAck(const char* status) {
+  JsonDocument doc;
+  doc["config"] = "zones";
+  doc["status"] = status;
+
+  char buf[128];
+  serializeJson(doc, buf);
+
+  char topic[80];
+  snprintf(topic, sizeof(topic), "smartgarden/devices/ack/%s", WiFi.macAddress().c_str());
+  _mqtt.publish(topic, buf);
+  _mqtt.loop();  // força l'enviament abans de continuar
+  Serial.printf("[ZoneCfg] ACK publicat: %s\n", status);
+}
+
 void MqttClient::_performOtaUpdate() {
   if (_otaUpdater == nullptr) return;
 
@@ -106,12 +126,33 @@ void MqttClient::_performOtaUpdate() {
   }
 }
 
+void MqttClient::_performZoneConfigUpdate() {
+  Serial.println("[ZoneCfg] Aplicant nova configuració de zones...");
+
+  // Atura qualsevol reg actiu per seguretat
+  if (_irrigCtrl) {
+    _irrigCtrl->stopAll();
+  }
+
+  // Desa la nova config a NVS
+  if (_zoneManager && _zoneManager->saveToNVS(_zoneConfigBuf)) {
+    _publishZoneConfigAck("stored");
+    Serial.println("[ZoneCfg] Reiniciant en 1s...");
+    delay(1000);  // espera que l'ACK s'enviï via MQTT loop
+    ESP.restart();
+  } else {
+    _publishZoneConfigAck("failed");
+    Serial.println("[ZoneCfg] Error desant config, continuant amb config actual");
+  }
+}
+
 void MqttClient::_reconnect() {
   Serial.printf("[MQTT] Connectant a %s:%d...\n", MQTT_BROKER, MQTT_PORT);
   unsigned long backoff = 1000;
 
-  String clientId = String("esp32-") + WiFi.macAddress();
-  String otaTopic = String("smartgarden/ota/") + WiFi.macAddress();
+  String clientId   = String("esp32-") + WiFi.macAddress();
+  String otaTopic   = String("smartgarden/ota/") + WiFi.macAddress();
+  String zoneCfgTopic = String("smartgarden/config/zones/") + WiFi.macAddress();
 
   while (!_mqtt.connected()) {
     if (_mqtt.connect(clientId.c_str())) {
@@ -119,6 +160,7 @@ void MqttClient::_reconnect() {
       _mqtt.subscribe("smartgarden/control/#");
       _mqtt.subscribe("smartgarden/config/push");
       _mqtt.subscribe(otaTopic.c_str());
+      _mqtt.subscribe(zoneCfgTopic.c_str());
       publishRegister();
     } else {
       Serial.printf("[MQTT] Error %d, reintentant en %lums\n", _mqtt.state(), backoff);
@@ -137,13 +179,23 @@ void MqttClient::_onMessage(char* topic, byte* payload, unsigned int length) {
 
   String topicStr(topic);
 
+  // Zone config update
+  if (topicStr.startsWith("smartgarden/config/zones/")) {
+    // Copia el JSON a buffer estàtic i activa el flag — es processa al loop()
+    size_t copied = length < sizeof(_zoneConfigBuf) - 1 ? length : sizeof(_zoneConfigBuf) - 1;
+    memcpy(_zoneConfigBuf, payload, copied);
+    _zoneConfigBuf[copied] = '\0';
+    _zoneConfigPending = true;
+    Serial.println("[ZoneCfg] Config rebuda, processant al loop...");
+    return;
+  }
+
   // OTA update
   if (topicStr.startsWith("smartgarden/ota/")) {
     const char* version = doc["version"] | "";
     const char* url     = doc["url"]     | "";
     if (strlen(url) == 0 || strlen(version) == 0) return;
 
-    // No tornem a actualitzar si ja tenim la mateixa versió
     if (strcmp(version, FIRMWARE_VERSION) == 0) {
       Serial.printf("[OTA] Versió %s ja instal·lada, ignorant\n", version);
       return;
@@ -162,15 +214,12 @@ void MqttClient::_onMessage(char* topic, byte* payload, unsigned int length) {
   if (_irrigCtrl == nullptr) return;
   if (!topicStr.startsWith("smartgarden/control/")) return;
   int zoneId = topicStr.substring(20).toInt();
-  if (zoneId < 1 || zoneId > 2) return;
 
   const char* action = doc["action"] | "";
   if (strcmp(action, "on") == 0) {
     unsigned long durationMs = (unsigned long)(doc["duration_seconds"] | 60) * 1000UL;
     _irrigCtrl->startZone(zoneId, durationMs);
-    Serial.printf("[control] Zona %d ON durant %lu s\n", zoneId, durationMs / 1000);
   } else if (strcmp(action, "off") == 0) {
     _irrigCtrl->stopZone(zoneId);
-    Serial.printf("[control] Zona %d OFF\n", zoneId);
   }
 }

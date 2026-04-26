@@ -1,35 +1,67 @@
 #include "IrrigationController.h"
-#include "../config.h"
 
-void IrrigationController::begin() {
-  pinMode(RELAY_ZONE1_PIN, OUTPUT);
-  pinMode(RELAY_ZONE2_PIN, OUTPUT);
-  digitalWrite(RELAY_ZONE1_PIN, HIGH);   // relé actiu LOW — apagat per defecte
-  digitalWrite(RELAY_ZONE2_PIN, HIGH);
+void IrrigationController::begin(const ZoneManager& zm) {
+  _count = zm.zoneCount();
+  for (int i = 0; i < _count; i++) {
+    const ZoneConfig& z = zm.zone(i);
+    _relayPins[i] = z.relayPin;
+    _zoneIds[i]   = z.id;
+    _endMs[i]     = 0;
+    pinMode(z.relayPin, OUTPUT);
+    digitalWrite(z.relayPin, HIGH);  // relé actiu LOW — apagat per defecte
+  }
+  Serial.printf("[IrrigCtrl] %d zones inicialitzades\n", _count);
+}
+
+int IrrigationController::_indexOf(int zoneId) const {
+  for (int i = 0; i < _count; i++) {
+    if (_zoneIds[i] == zoneId) return i;
+  }
+  return -1;
 }
 
 void IrrigationController::startZone(int zoneId, unsigned long durationMs) {
-  if (zoneId == 1) {
-    digitalWrite(RELAY_ZONE1_PIN, LOW);
-    _zone1EndMs = millis() + durationMs;
-  } else if (zoneId == 2) {
-    digitalWrite(RELAY_ZONE2_PIN, LOW);
-    _zone2EndMs = millis() + durationMs;
+  int idx = _indexOf(zoneId);
+  if (idx < 0) {
+    Serial.printf("[IrrigCtrl] Zona %d no trobada\n", zoneId);
+    return;
   }
+  digitalWrite(_relayPins[idx], LOW);
+  _endMs[idx] = millis() + durationMs;
+  Serial.printf("[IrrigCtrl] Zona %d ON durant %lus\n", zoneId, durationMs / 1000);
 }
 
 void IrrigationController::stopZone(int zoneId) {
-  if (zoneId == 1) {
-    digitalWrite(RELAY_ZONE1_PIN, HIGH);
-    _zone1EndMs = 0;
-  } else if (zoneId == 2) {
-    digitalWrite(RELAY_ZONE2_PIN, HIGH);
-    _zone2EndMs = 0;
+  int idx = _indexOf(zoneId);
+  if (idx < 0) return;
+  digitalWrite(_relayPins[idx], HIGH);
+  _endMs[idx] = 0;
+  Serial.printf("[IrrigCtrl] Zona %d OFF\n", zoneId);
+}
+
+void IrrigationController::stopAll() {
+  for (int i = 0; i < _count; i++) {
+    if (_endMs[i] > 0) {
+      digitalWrite(_relayPins[i], HIGH);
+      _endMs[i] = 0;
+    }
   }
+}
+
+bool IrrigationController::isAnyActive() const {
+  for (int i = 0; i < _count; i++) {
+    if (_endMs[i] > 0) return true;
+  }
+  return false;
 }
 
 void IrrigationController::loop() {
   unsigned long now = millis();
-  if (_zone1EndMs > 0 && now >= _zone1EndMs) stopZone(1);
-  if (_zone2EndMs > 0 && now >= _zone2EndMs) stopZone(2);
+  for (int i = 0; i < _count; i++) {
+    if (_endMs[i] > 0 && now >= _endMs[i]) {
+      digitalWrite(_relayPins[i], HIGH);
+      _endMs[i] = 0;
+      Serial.printf("[IrrigCtrl] Zona %d timeout, apagada\n", _zoneIds[i]);
+    }
+  }
 }
