@@ -185,13 +185,25 @@ void MqttClient::_performHardwareConfigUpdate() {
     return;
   }
 
-  // Re-serialize each sub-array for individual NVS storage
+  // Re-serialize each sub-array for individual NVS storage.
+  // PeripheralRegistry expects a top-level JSON array.
+  // ZoneManager expects {"zones":[...]} and TankManager expects {"tanks":[...]}.
   char perifBuf[2048];
   char zonesBuf[768];
   char tanksBuf[512];
+
   serializeJson(doc["peripherals"], perifBuf, sizeof(perifBuf));
-  serializeJson(doc["zones"],       zonesBuf, sizeof(zonesBuf));
-  serializeJson(doc["tanks"],       tanksBuf, sizeof(tanksBuf));
+
+  {
+    JsonDocument wrapper;
+    wrapper["zones"] = doc["zones"];
+    serializeJson(wrapper, zonesBuf, sizeof(zonesBuf));
+  }
+  {
+    JsonDocument wrapper;
+    wrapper["tanks"] = doc["tanks"];
+    serializeJson(wrapper, tanksBuf, sizeof(tanksBuf));
+  }
 
   bool ok = true;
   if (_peripheralRegistry) ok &= _peripheralRegistry->saveToNVS(perifBuf);
