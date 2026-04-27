@@ -1,15 +1,26 @@
 #include "AmbientSensor.h"
-#include "../config.h"
 
-void AmbientSensor::begin() {
-  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
-  Wire.setTimeOut(200);   // evita que un bus I2C penjat trigui el watchdog
+void AmbientSensor::begin(const PeripheralRegistry& registry) {
+  // Only initialise sensors that are registered as peripherals
+  const PeripheralConfig* htuList[1];
+  bool hasHtu = registry.byType(PeripheralType::HTU21D, htuList, 1) > 0;
 
-  _htuOk = _htu.begin();
-  if (!_htuOk) Serial.println("[AmbientSensor] HTU21D no trobat");
+  const PeripheralConfig* bh1750List[1];
+  bool hasBh1750 = registry.byType(PeripheralType::BH1750, bh1750List, 1) > 0;
 
-  _bh1750Ok = _bh1750.begin(BH1750::CONTINUOUS_HIGH_RES_MODE);
-  if (!_bh1750Ok) Serial.println("[AmbientSensor] BH1750 no trobat");
+  if (hasHtu) {
+    _htuOk = _htu.begin();
+    if (!_htuOk) Serial.println("[Ambient] HTU21D no trobat al bus I2C");
+  } else {
+    Serial.println("[Ambient] HTU21D no configurat en els perifèrics");
+  }
+
+  if (hasBh1750) {
+    _bh1750Ok = _bh1750.begin(BH1750::CONTINUOUS_HIGH_RES_MODE);
+    if (!_bh1750Ok) Serial.println("[Ambient] BH1750 no trobat al bus I2C");
+  } else {
+    Serial.println("[Ambient] BH1750 no configurat en els perifèrics");
+  }
 }
 
 float AmbientSensor::readTemperature() {

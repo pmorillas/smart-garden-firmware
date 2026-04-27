@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include "../TankManager.h"
+#include "PeripheralRegistry.h"
 
 struct TankLevel {
   float rawValue;
@@ -10,12 +11,13 @@ struct TankLevel {
 
 class TankSensor {
 public:
-  explicit TankSensor(const TankConfig& cfg);
+  TankSensor(const TankConfig& cfg, const PeripheralRegistry& registry);
   void begin();
   TankLevel read();
 
 private:
-  const TankConfig& _cfg;
+  const TankConfig&    _cfg;
+  const PeripheralConfig* _perif;  // nullptr if not found in registry
 
   TankLevel _readBinarySingle();
   TankLevel _readBinaryDual();

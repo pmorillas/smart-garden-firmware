@@ -1,10 +1,12 @@
 #include <Arduino.h>
+#include <Wire.h>
 #include <WiFi.h>
 #include "config.h"
 #include "NetworkConfig.h"
 #include "webui/WebUI.h"
 #include "ZoneManager.h"
 #include "TankManager.h"
+#include "sensors/PeripheralRegistry.h"
 #include "sensors/SoilSensor.h"
 #include "sensors/AmbientSensor.h"
 #include "sensors/TankSensor.h"
@@ -15,6 +17,7 @@
 
 static NetworkConfig         netCfg;
 static WebUI                 webUI;
+static PeripheralRegistry    peripheralRegistry;
 static ZoneManager           zoneManager;
 static TankManager           tankManager;
 static AmbientSensor         ambientSensor;
@@ -29,11 +32,8 @@ static int         numZones = 0;
 static TankSensor* tankSensors[MAX_TANKS];
 static int         numTanks = 0;
 
-// Timestamp de l'última lectura publicada (per al failsafe)
 static unsigned long lastSensorReadMs = 0;
 
-// Llegeix tots els sensors i publica via MQTT.
-// Cridat pel callback pull del backend i pel failsafe.
 static void publishAllSensors() {
   lastSensorReadMs = millis();
 
@@ -59,7 +59,6 @@ static void publishAllSensors() {
   }
 }
 
-// Intenta connectar al WiFi amb netCfg. Retorna false si passa el timeout de 30s.
 static bool connectWifi() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(netCfg.wifiSsid, netCfg.wifiPass);
@@ -87,17 +86,29 @@ void setup() {
 
   if (!hasConfig || !connectWifi()) {
     Serial.println("[boot] Entrant en mode configuració AP...");
-    webUI.runAPMode();  // bloqueja fins que l'usuari desa config i reinicia
-    return;             // mai s'arriba aquí
+    webUI.runAPMode();
+    return;
   }
 
-  // Carrega configuració de zones (NVS → fallback a config.h)
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+
+  peripheralRegistry.loadFromNVS();
+
   zoneManager.loadFromNVS();
   numZones = zoneManager.zoneCount();
 
   for (int i = 0; i < numZones; i++) {
     const ZoneConfig& z = zoneManager.zone(i);
-    soilSensors[i] = new SoilSensor(z.soilPinA, z.soilPinB);
+
+    // Collect soil peripherals for this zone from the registry
+    const PeripheralConfig* soilPerifs[MAX_SOIL_PER_ZONE];
+    int soilCount = 0;
+    for (int s = 0; s < z.soilCount && soilCount < MAX_SOIL_PER_ZONE; s++) {
+      const PeripheralConfig* p = peripheralRegistry.byId(z.soilPeripheralIds[s]);
+      if (p) soilPerifs[soilCount++] = p;
+    }
+
+    soilSensors[i] = new SoilSensor(soilPerifs, soilCount, z.aggregationMode);
     soilSensors[i]->begin();
   }
 
@@ -105,7 +116,7 @@ void setup() {
   numTanks = tankManager.tankCount();
 
   for (int i = 0; i < numTanks; i++) {
-    tankSensors[i] = new TankSensor(tankManager.tank(i));
+    tankSensors[i] = new TankSensor(tankManager.tank(i), peripheralRegistry);
     tankSensors[i]->begin();
   }
 
@@ -115,12 +126,13 @@ void setup() {
   mqttClient.setOtaUpdater(&otaUpdater);
   mqttClient.setZoneManager(&zoneManager);
   mqttClient.setTankManager(&tankManager);
+  mqttClient.setPeripheralRegistry(&peripheralRegistry);
   mqttClient.setSensorReadCallback(publishAllSensors);
   mqttClient.connect(netCfg.mqttBroker, netCfg.mqttPort);
 
   localSchedule.loadFromNVS();
-  ambientSensor.begin();
-  irrigationCtrl.begin(zoneManager);
+  ambientSensor.begin(peripheralRegistry);
+  irrigationCtrl.begin(zoneManager, peripheralRegistry);
 
   Serial.printf("[smart-garden] Setup complet — %d zones, %d dipòsits actius\n", numZones, numTanks);
 }
@@ -142,7 +154,6 @@ void loop() {
   mqttClient.loop();
   irrigationCtrl.loop();
 
-  // Failsafe: si el backend no envia cap petició en SENSOR_FAILSAFE_MS, publica igualment
   if (millis() - lastSensorReadMs >= SENSOR_FAILSAFE_MS) {
     Serial.println("[sensors] Failsafe: publicant sense petició del backend");
     publishAllSensors();

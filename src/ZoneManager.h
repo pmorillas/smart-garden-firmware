@@ -1,15 +1,17 @@
 #pragma once
 #include <Arduino.h>
+#include "sensors/PeripheralConfig.h"
 
-#define MAX_ZONES 8
+#define MAX_ZONES          8
 #define ZONE_NVS_NAMESPACE "zones"
-#define ZONE_NVS_KEY "cfg"
+#define ZONE_NVS_KEY       "cfg"
 
 struct ZoneConfig {
-  int id;
-  int relayPin;
-  int soilPinA;
-  int soilPinB;
+  int             id                                  = 0;
+  uint8_t         relayPeripheralId                   = 0;    // 0 = not assigned
+  AggregationMode aggregationMode                     = AggregationMode::AVG;
+  uint8_t         soilPeripheralIds[MAX_SOIL_PER_ZONE] = {};
+  uint8_t         soilCount                           = 0;
 };
 
 class ZoneManager {

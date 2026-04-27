@@ -1,5 +1,4 @@
 #include "ZoneManager.h"
-#include "config.h"
 #include <ArduinoJson.h>
 #include <Preferences.h>
 
@@ -18,7 +17,7 @@ void ZoneManager::loadFromNVS() {
 
   JsonDocument doc;
   if (deserializeJson(doc, json) != DeserializationError::Ok) {
-    Serial.println("[ZoneManager] Error parsejant config NVS, usant defaults");
+    Serial.println("[ZoneMgr] Error parsejant config NVS, usant defaults");
     _loadDefaults();
     return;
   }
@@ -32,14 +31,23 @@ void ZoneManager::loadFromNVS() {
   _count = 0;
   for (JsonObject z : arr) {
     if (_count >= MAX_ZONES) break;
-    _zones[_count++] = {
-      z["id"].as<int>(),
-      z["relay_pin"].as<int>(),
-      z["soil_pin_a"].as<int>(),
-      z["soil_pin_b"].as<int>()
-    };
+    ZoneConfig& zc = _zones[_count];
+
+    zc.id                 = z["id"]                  | 0;
+    zc.relayPeripheralId  = z["relay_peripheral_id"]  | 0;
+    zc.aggregationMode    = aggregationModeFromStr(z["soil_aggregation_mode"] | "AVG");
+    zc.soilCount          = 0;
+
+    if (z["soil_peripheral_ids"].is<JsonArray>()) {
+      for (uint8_t pid : z["soil_peripheral_ids"].as<JsonArray>()) {
+        if (zc.soilCount >= MAX_SOIL_PER_ZONE) break;
+        zc.soilPeripheralIds[zc.soilCount++] = pid;
+      }
+    }
+
+    if (zc.id > 0) _count++;
   }
-  Serial.printf("[ZoneManager] %d zones carregades des de NVS\n", _count);
+  Serial.printf("[ZoneMgr] %d zones carregades des de NVS\n", _count);
 }
 
 bool ZoneManager::saveToNVS(const char* jsonStr) {
@@ -47,11 +55,8 @@ bool ZoneManager::saveToNVS(const char* jsonStr) {
   prefs.begin(ZONE_NVS_NAMESPACE, false);
   bool ok = prefs.putString(ZONE_NVS_KEY, jsonStr);
   prefs.end();
-  if (ok) {
-    Serial.println("[ZoneManager] Config desada a NVS");
-  } else {
-    Serial.println("[ZoneManager] Error desant config a NVS");
-  }
+  if (ok) Serial.println("[ZoneMgr] Config desada a NVS");
+  else    Serial.println("[ZoneMgr] Error desant config a NVS");
   return ok;
 }
 
@@ -63,8 +68,7 @@ int ZoneManager::indexById(int id) const {
 }
 
 void ZoneManager::_loadDefaults() {
-  _count = 2;
-  _zones[0] = { 1, RELAY_ZONE1_PIN, SOIL_ZONE1_PIN_A, SOIL_ZONE1_PIN_B };
-  _zones[1] = { 2, RELAY_ZONE2_PIN, SOIL_ZONE2_PIN_A, SOIL_ZONE2_PIN_B };
-  Serial.println("[ZoneManager] Usant pins per defecte (config.h)");
+  // No hardcoded pins — ESP operates without zone config until backend pushes it
+  _count = 0;
+  Serial.println("[ZoneMgr] Sense config NVS, esperant config del backend");
 }

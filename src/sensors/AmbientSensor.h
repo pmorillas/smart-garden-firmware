@@ -2,13 +2,17 @@
 #include <Wire.h>
 #include <Adafruit_HTU21DF.h>
 #include <BH1750.h>
+#include "PeripheralRegistry.h"
 
 class AmbientSensor {
 public:
-  void begin();
-  float readTemperature();     // Celsius, NAN si sensor absent
-  float readHumidity();        // %, NAN si sensor absent
-  float readLightLux();        // lux, NAN si sensor absent
+  // Initialise based on what the registry has registered.
+  // Wire.begin() must have been called before this.
+  void begin(const PeripheralRegistry& registry);
+
+  float readTemperature();  // Celsius, NAN if not available
+  float readHumidity();     // %, NAN if not available
+  float readLightLux();     // lux, NAN if not available
 
 private:
   Adafruit_HTU21DF _htu;

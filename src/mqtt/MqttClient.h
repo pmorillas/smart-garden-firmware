@@ -6,6 +6,7 @@
 #include "../ota/OtaUpdater.h"
 #include "../ZoneManager.h"
 #include "../TankManager.h"
+#include "../sensors/PeripheralRegistry.h"
 
 class MqttClient {
 public:
@@ -15,6 +16,7 @@ public:
   void setOtaUpdater(OtaUpdater* ota);
   void setZoneManager(ZoneManager* zm);
   void setTankManager(TankManager* tm);
+  void setPeripheralRegistry(PeripheralRegistry* pr);
   void setSensorReadCallback(void (*fn)());
   void publishSoil(int zoneId, float humidityPct);
   void publishAmbient(float tempC, float humidityPct, float lightLux);
@@ -22,31 +24,24 @@ public:
   void publishRegister();
 
 private:
-  WiFiClient _wifiClient;
+  WiFiClient   _wifiClient;
   PubSubClient _mqtt{_wifiClient};
 
   static IrrigationController* _irrigCtrl;
   static OtaUpdater*            _otaUpdater;
   static ZoneManager*           _zoneManager;
   static TankManager*           _tankManager;
-
-  // Callback de lectura de sensors (registrat per main.cpp)
+  static PeripheralRegistry*    _peripheralRegistry;
   static void (*_sensorReadCallback)();
 
-  // OTA pendent (processada al loop, no al callback MQTT)
+  // Pending actions (processed in loop to avoid MQTT callback reentrancy)
   static bool _otaPending;
   static char _otaUrl[256];
   static char _otaVersion[24];
 
-  // Zone config pendent (processada al loop per evitar recursió MQTT)
-  static bool _zoneConfigPending;
-  static char _zoneConfigBuf[1024];
+  static bool _hwCfgPending;
+  static char _hwCfgBuf[3072];  // full hardware config JSON from backend
 
-  // Tank config pendent (processada al loop per evitar recursió MQTT)
-  static bool _tankConfigPending;
-  static char _tankConfigBuf[2048];
-
-  // Peticions pull pendents (processades al loop)
   static bool _sensorReadPending;
   static bool _pingPending;
 
@@ -55,10 +50,9 @@ private:
 
   void _reconnect();
   void _performOtaUpdate();
-  void _performZoneConfigUpdate();
-  void _performTankConfigUpdate();
+  void _performHardwareConfigUpdate();
   void _publishPong();
   void _publishOtaStatus(const char* status, const char* error = nullptr);
-  void _publishZoneConfigAck(const char* status);
+  void _publishHardwareConfigAck(const char* status);
   static void _onMessage(char* topic, byte* payload, unsigned int length);
 };

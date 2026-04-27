@@ -1,10 +1,11 @@
 #pragma once
 #include <Arduino.h>
 #include "../ZoneManager.h"
+#include "../sensors/PeripheralRegistry.h"
 
 class IrrigationController {
 public:
-  void begin(const ZoneManager& zm);
+  void begin(const ZoneManager& zm, const PeripheralRegistry& registry);
   void startZone(int zoneId, unsigned long durationMs);
   void stopZone(int zoneId);
   void stopAll();
@@ -12,10 +13,10 @@ public:
   void loop();
 
 private:
-  int _relayPins[MAX_ZONES];
-  int _zoneIds[MAX_ZONES];
+  int          _relayPins[MAX_ZONES];
+  int          _zoneIds[MAX_ZONES];
   unsigned long _endMs[MAX_ZONES];
-  int _count = 0;
+  int          _count = 0;
 
   int _indexOf(int zoneId) const;
 };
