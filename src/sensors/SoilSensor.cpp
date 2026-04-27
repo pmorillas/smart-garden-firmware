@@ -30,6 +30,16 @@ float SoilSensor::_readOneSensor(int idx) {
   return _rawToPercent(raw, dry, wet);
 }
 
+int SoilSensor::readAllPct(float* out, int maxCount) {
+  int written = 0;
+  int n = _count < maxCount ? _count : maxCount;
+  for (int i = 0; i < n; i++) {
+    float v = _readOneSensor(i);
+    if (!isnan(v)) out[written++] = v;
+  }
+  return written;
+}
+
 float SoilSensor::readHumidityPct() {
   if (_count == 0) return NAN;
 

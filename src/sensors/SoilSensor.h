@@ -12,7 +12,8 @@ public:
              int dryVal = 4095, int wetVal = 1500);
 
   void begin();
-  float readHumidityPct();  // NAN if no sensors configured
+  float readHumidityPct();              // aggregated value; NAN if no sensors
+  int   readAllPct(float* out, int maxCount);  // individual readings; returns count
 
 private:
   const PeripheralConfig* _sensors[MAX_SOIL_PER_ZONE];
