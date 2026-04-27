@@ -9,12 +9,13 @@
 
 class MqttClient {
 public:
-  void connect();
+  void connect(const char* broker, uint16_t port);
   void loop();
   void setIrrigationController(IrrigationController* ctrl);
   void setOtaUpdater(OtaUpdater* ota);
   void setZoneManager(ZoneManager* zm);
   void setTankManager(TankManager* tm);
+  void setSensorReadCallback(void (*fn)());
   void publishSoil(int zoneId, float humidityPct);
   void publishAmbient(float tempC, float humidityPct, float lightLux);
   void publishTank(int tankId, float rawValue, float levelPct, const char* state);
@@ -29,6 +30,9 @@ private:
   static ZoneManager*           _zoneManager;
   static TankManager*           _tankManager;
 
+  // Callback de lectura de sensors (registrat per main.cpp)
+  static void (*_sensorReadCallback)();
+
   // OTA pendent (processada al loop, no al callback MQTT)
   static bool _otaPending;
   static char _otaUrl[256];
@@ -42,10 +46,18 @@ private:
   static bool _tankConfigPending;
   static char _tankConfigBuf[2048];
 
+  // Peticions pull pendents (processades al loop)
+  static bool _sensorReadPending;
+  static bool _pingPending;
+
+  char     _broker[64] = {};
+  uint16_t _port       = 1883;
+
   void _reconnect();
   void _performOtaUpdate();
   void _performZoneConfigUpdate();
   void _performTankConfigUpdate();
+  void _publishPong();
   void _publishOtaStatus(const char* status, const char* error = nullptr);
   void _publishZoneConfigAck(const char* status);
   static void _onMessage(char* topic, byte* payload, unsigned int length);

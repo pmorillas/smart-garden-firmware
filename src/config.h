@@ -1,16 +1,10 @@
 #pragma once
 
-// WiFi
-#define WIFI_SSID       "Pararols4-1er2na"
-#define WIFI_PASSWORD   "hML3vpH5ejKS"
-
 // Firmware
-#define FIRMWARE_VERSION "1.1.0"
+#define FIRMWARE_VERSION "1.2.0"
 
-// MQTT
-#define MQTT_BROKER  "192.168.1.162"
-#define MQTT_PORT    1883
-// MQTT_CLIENT_ID és dinàmic (basat en MAC) — generat a MqttClient::_reconnect()
+// AP de configuració (primera arrencada o WiFi no configurat)
+#define PROVISION_AP_SSID "SmartGarden-Setup"
 
 // Pins sensors de terra (analògics ADC1 — compatibles amb WiFi)
 #define SOIL_ZONE1_PIN_A  32
@@ -27,5 +21,5 @@
 #define RELAY_ZONE2_PIN  27
 
 // Intervals
-#define PUBLISH_INTERVAL_MS    (10 * 1000UL)                     // (5 * 60 * 1000UL)   // 5 minuts
+#define SENSOR_FAILSAFE_MS     (15 * 60 * 1000UL)  // publica si no arriba cap petició en 15 min
 #define MQTT_RECONNECT_MAX_MS  60000                // backoff màxim 60s

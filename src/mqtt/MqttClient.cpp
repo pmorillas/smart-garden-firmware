@@ -6,6 +6,7 @@ IrrigationController* MqttClient::_irrigCtrl      = nullptr;
 OtaUpdater*           MqttClient::_otaUpdater      = nullptr;
 ZoneManager*          MqttClient::_zoneManager     = nullptr;
 TankManager*          MqttClient::_tankManager     = nullptr;
+void (*MqttClient::_sensorReadCallback)()          = nullptr;
 bool                  MqttClient::_otaPending       = false;
 char                  MqttClient::_otaUrl[256]      = {};
 char                  MqttClient::_otaVersion[24]   = {};
@@ -13,14 +14,19 @@ bool                  MqttClient::_zoneConfigPending = false;
 char                  MqttClient::_zoneConfigBuf[1024] = {};
 bool                  MqttClient::_tankConfigPending = false;
 char                  MqttClient::_tankConfigBuf[2048] = {};
+bool                  MqttClient::_sensorReadPending = false;
+bool                  MqttClient::_pingPending       = false;
 
 void MqttClient::setIrrigationController(IrrigationController* ctrl) { _irrigCtrl  = ctrl; }
 void MqttClient::setOtaUpdater(OtaUpdater* ota)                       { _otaUpdater = ota; }
 void MqttClient::setZoneManager(ZoneManager* zm)                      { _zoneManager = zm; }
 void MqttClient::setTankManager(TankManager* tm)                      { _tankManager = tm; }
+void MqttClient::setSensorReadCallback(void (*fn)())                  { _sensorReadCallback = fn; }
 
-void MqttClient::connect() {
-  _mqtt.setServer(MQTT_BROKER, MQTT_PORT);
+void MqttClient::connect(const char* broker, uint16_t port) {
+  strncpy(_broker, broker, sizeof(_broker) - 1);
+  _port = port;
+  _mqtt.setServer(_broker, _port);
   _mqtt.setBufferSize(1024);
   _mqtt.setCallback(_onMessage);
   _reconnect();
@@ -31,6 +37,16 @@ void MqttClient::loop() {
     _reconnect();
   }
   _mqtt.loop();
+
+  if (_sensorReadPending) {
+    _sensorReadPending = false;
+    if (_sensorReadCallback) _sensorReadCallback();
+  }
+
+  if (_pingPending) {
+    _pingPending = false;
+    _publishPong();
+  }
 
   if (_zoneConfigPending) {
     _zoneConfigPending = false;
@@ -104,6 +120,19 @@ void MqttClient::publishAmbient(float tempC, float humidityPct, float lightLux) 
   _mqtt.publish("smartgarden/sensors/ambient", buf);
 }
 
+void MqttClient::_publishPong() {
+  JsonDocument doc;
+  doc["mac"] = WiFi.macAddress();
+  doc["ts"]  = millis() / 1000;
+
+  char buf[128];
+  serializeJson(doc, buf);
+  char topic[80];
+  snprintf(topic, sizeof(topic), "smartgarden/pong/%s", WiFi.macAddress().c_str());
+  _mqtt.publish(topic, buf);
+  Serial.println("[MQTT] Pong enviat");
+}
+
 void MqttClient::_publishOtaStatus(const char* status, const char* error) {
   JsonDocument doc;
   doc["mac"]     = WiFi.macAddress();
@@ -153,16 +182,14 @@ void MqttClient::_performOtaUpdate() {
 void MqttClient::_performZoneConfigUpdate() {
   Serial.println("[ZoneCfg] Aplicant nova configuració de zones...");
 
-  // Atura qualsevol reg actiu per seguretat
   if (_irrigCtrl) {
     _irrigCtrl->stopAll();
   }
 
-  // Desa la nova config a NVS
   if (_zoneManager && _zoneManager->saveToNVS(_zoneConfigBuf)) {
     _publishZoneConfigAck("stored");
     Serial.println("[ZoneCfg] Reiniciant en 1s...");
-    delay(1000);  // espera que l'ACK s'enviï via MQTT loop
+    delay(1000);
     ESP.restart();
   } else {
     _publishZoneConfigAck("failed");
@@ -182,13 +209,15 @@ void MqttClient::_performTankConfigUpdate() {
 }
 
 void MqttClient::_reconnect() {
-  Serial.printf("[MQTT] Connectant a %s:%d...\n", MQTT_BROKER, MQTT_PORT);
+  Serial.printf("[MQTT] Connectant a %s:%d...\n", _broker, _port);
   unsigned long backoff = 1000;
 
-  String clientId      = String("esp32-") + WiFi.macAddress();
-  String otaTopic      = String("smartgarden/ota/") + WiFi.macAddress();
-  String zoneCfgTopic  = String("smartgarden/config/zones/") + WiFi.macAddress();
-  String tankCfgTopic  = String("smartgarden/config/tanks/") + WiFi.macAddress();
+  String clientId         = String("esp32-") + WiFi.macAddress();
+  String otaTopic         = String("smartgarden/ota/") + WiFi.macAddress();
+  String zoneCfgTopic     = String("smartgarden/config/zones/") + WiFi.macAddress();
+  String tankCfgTopic     = String("smartgarden/config/tanks/") + WiFi.macAddress();
+  String sensorReqTopic   = String("smartgarden/sensors/request/") + WiFi.macAddress();
+  String pingTopic        = String("smartgarden/ping/") + WiFi.macAddress();
 
   while (!_mqtt.connected()) {
     if (_mqtt.connect(clientId.c_str())) {
@@ -198,6 +227,8 @@ void MqttClient::_reconnect() {
       _mqtt.subscribe(otaTopic.c_str());
       _mqtt.subscribe(zoneCfgTopic.c_str());
       _mqtt.subscribe(tankCfgTopic.c_str());
+      _mqtt.subscribe(sensorReqTopic.c_str());
+      _mqtt.subscribe(pingTopic.c_str());
       publishRegister();
     } else {
       Serial.printf("[MQTT] Error %d, reintentant en %lums\n", _mqtt.state(), backoff);
@@ -215,6 +246,20 @@ void MqttClient::_onMessage(char* topic, byte* payload, unsigned int length) {
   }
 
   String topicStr(topic);
+
+  // Petició de lectura de sensors (mode pull)
+  if (topicStr.startsWith("smartgarden/sensors/request/")) {
+    _sensorReadPending = true;
+    Serial.println("[MQTT] Petició de lectura rebuda");
+    return;
+  }
+
+  // Ping
+  if (topicStr.startsWith("smartgarden/ping/")) {
+    _pingPending = true;
+    Serial.println("[MQTT] Ping rebut");
+    return;
+  }
 
   // Zone config update
   if (topicStr.startsWith("smartgarden/config/zones/")) {
