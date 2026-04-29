@@ -1,7 +1,7 @@
 #pragma once
 
 // Firmware
-#define FIRMWARE_VERSION "1.3.2"
+#define FIRMWARE_VERSION "1.5.0"
 
 // AP de configuració (primera arrencada o WiFi no configurat)
 #define PROVISION_AP_SSID "SmartGarden-Setup"

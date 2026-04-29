@@ -48,6 +48,20 @@ void PeripheralRegistry::_parse(const char* jsonArrayStr) {
       JsonObject ec = obj["extra_config"].as<JsonObject>();
       p.calEmpty = ec["cal_empty"] | 0;
       p.calFull  = ec["cal_full"]  | 0;
+
+      // Parse FLOAT_BINARY N-pin array from extra_config.pins
+      if (p.type == PeripheralType::FLOAT_BINARY && ec["pins"].is<JsonArray>()) {
+        JsonArray pins = ec["pins"].as<JsonArray>();
+        p.floatPinCount = 0;
+        for (JsonObject pin : pins) {
+          if (p.floatPinCount >= MAX_FLOAT_PINS) break;
+          FloatPin& fp = p.floatPins[p.floatPinCount++];
+          fp.gpio     = pin["pin"].isNull() ? PIN_UNSET : (uint8_t)(pin["pin"] | PIN_UNSET);
+          fp.levelPct = (uint8_t)(pin["level_pct"] | 0);
+          const char* m = pin["mode"] | "pullup";
+          fp.mode = (strcmp(m, "pulldown") == 0) ? 1 : 0;
+        }
+      }
     } else {
       p.calEmpty = 0;
       p.calFull  = 0;

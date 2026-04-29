@@ -101,6 +101,21 @@ void MqttClient::publishTank(int tankId, float rawValue, float levelPct, const c
   _mqtt.publish(topic, buf);
 }
 
+void MqttClient::publishTankBinary(int tankId, int peripheralId, const int* pinStates, int count) {
+  JsonDocument doc;
+  doc["peripheral_id"] = peripheralId;
+  JsonArray arr = doc["pin_states"].to<JsonArray>();
+  for (int i = 0; i < count; i++) arr.add(pinStates[i]);
+  doc["mac"]       = WiFi.macAddress();
+  doc["timestamp"] = millis() / 1000;
+
+  char buf[192];
+  serializeJson(doc, buf);
+  char topic[48];
+  snprintf(topic, sizeof(topic), "smartgarden/sensors/tank/%d", tankId);
+  _mqtt.publish(topic, buf);
+}
+
 void MqttClient::publishAmbient(float tempC, float humidityPct, float lightLux) {
   JsonDocument doc;
   if (!isnan(tempC))       doc["temp"]      = tempC;

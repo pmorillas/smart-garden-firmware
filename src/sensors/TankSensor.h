@@ -15,10 +15,15 @@ public:
   void begin();
   TankLevel read();
 
+  // For FLOAT_BINARY N-pin sensors: fills out[] with raw digital states (0/1)
+  // aligned with extra_config.pins order. Returns pin count, or -1 if not applicable.
+  int readPinStates(int* out, int maxCount) const;
+
 private:
   const TankConfig&    _cfg;
   const PeripheralConfig* _perif;  // nullptr if not found in registry
 
+  TankLevel _readBinaryNPin();
   TankLevel _readBinarySingle();
   TankLevel _readBinaryDual();
   TankLevel _readUltrasonic();

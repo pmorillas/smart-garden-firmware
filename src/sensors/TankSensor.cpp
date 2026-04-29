@@ -15,8 +15,18 @@ void TankSensor::begin() {
 
   switch (_perif->type) {
     case PeripheralType::FLOAT_BINARY:
-      if (_perif->pin1 != PIN_UNSET) pinMode(_perif->pin1, INPUT_PULLUP);
-      if (_perif->pin2 != PIN_UNSET) pinMode(_perif->pin2, INPUT_PULLUP);
+      if (_perif->floatPinCount > 0) {
+        // N-pin mode: configure each pin with its own pullup/pulldown mode
+        for (int i = 0; i < _perif->floatPinCount; i++) {
+          const FloatPin& fp = _perif->floatPins[i];
+          if (fp.gpio == PIN_UNSET) continue;
+          pinMode(fp.gpio, fp.mode == 1 ? INPUT_PULLDOWN : INPUT_PULLUP);
+        }
+      } else {
+        // Legacy 1-2 pin mode (INPUT_PULLUP)
+        if (_perif->pin1 != PIN_UNSET) pinMode(_perif->pin1, INPUT_PULLUP);
+        if (_perif->pin2 != PIN_UNSET) pinMode(_perif->pin2, INPUT_PULLUP);
+      }
       break;
 
     case PeripheralType::HC_SR04:
@@ -37,6 +47,7 @@ TankLevel TankSensor::read() {
 
   switch (_perif->type) {
     case PeripheralType::FLOAT_BINARY:
+      if (_perif->floatPinCount > 0) return _readBinaryNPin();
       return (_perif->pin2 != PIN_UNSET) ? _readBinaryDual() : _readBinarySingle();
     case PeripheralType::HC_SR04:
       return _readUltrasonic();
@@ -47,6 +58,48 @@ TankLevel TankSensor::read() {
   }
 
   TankLevel lvl = {0.0f, -1.0f, "unknown"};
+  return lvl;
+}
+
+int TankSensor::readPinStates(int* out, int maxCount) const {
+  if (!_perif || _perif->type != PeripheralType::FLOAT_BINARY) return -1;
+  if (_perif->floatPinCount == 0) return -1;
+
+  int count = (_perif->floatPinCount < maxCount) ? _perif->floatPinCount : maxCount;
+  for (int i = 0; i < count; i++) {
+    if (_perif->floatPins[i].gpio == PIN_UNSET) {
+      out[i] = 0;
+    } else {
+      out[i] = digitalRead(_perif->floatPins[i].gpio);
+    }
+  }
+  return count;
+}
+
+TankLevel TankSensor::_readBinaryNPin() {
+  TankLevel lvl = {0.0f, 0.0f, "empty"};
+  int highestActive = -1;
+  float rawBits = 0.0f;
+
+  for (int i = 0; i < _perif->floatPinCount; i++) {
+    const FloatPin& fp = _perif->floatPins[i];
+    if (fp.gpio == PIN_UNSET) continue;
+    int state = digitalRead(fp.gpio);
+    if (state) rawBits += (1 << i);
+
+    // pullup (mode=0): active when LOW (state=0)
+    // pulldown (mode=1): active when HIGH (state=1)
+    bool active = (fp.mode == 1) ? (state == HIGH) : (state == LOW);
+    if (active && (int)fp.levelPct > highestActive) {
+      highestActive = (int)fp.levelPct;
+    }
+  }
+
+  lvl.rawValue = rawBits;
+  if (highestActive >= 0) {
+    lvl.levelPct = (float)highestActive;
+    _stateFromPct(lvl.levelPct, lvl.state);
+  }
   return lvl;
 }
 

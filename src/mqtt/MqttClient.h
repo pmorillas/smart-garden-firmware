@@ -21,6 +21,7 @@ public:
   void publishSoil(int zoneId, const int* rawValues, int count);
   void publishAmbient(float tempC, float humidityPct, float lightLux);
   void publishTank(int tankId, float rawValue, float levelPct, const char* state);
+  void publishTankBinary(int tankId, int peripheralId, const int* pinStates, int count);
   void publishRegister();
 
 private:

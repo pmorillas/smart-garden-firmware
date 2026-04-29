@@ -57,10 +57,21 @@ static void publishAllSensors() {
 
   for (int i = 0; i < numTanks; i++) {
     const TankConfig& tc = tankManager.tank(i);
-    TankLevel lvl = tankSensors[i]->read();
-    Serial.printf("[sensors] Dipòsit %d: raw=%.1f pct=%.1f estat=%s\n",
-                  tc.id, lvl.rawValue, lvl.levelPct, lvl.state);
-    mqttClient.publishTank(tc.id, lvl.rawValue, lvl.levelPct, lvl.state);
+    int pinStates[MAX_FLOAT_PINS];
+    int psCount = tankSensors[i]->readPinStates(pinStates, MAX_FLOAT_PINS);
+    if (psCount > 0) {
+      // FLOAT_BINARY N-pin: report raw states; backend computes level_pct
+      const PeripheralConfig* perif = peripheralRegistry.byId(tc.peripheralId);
+      int periId = perif ? perif->id : 0;
+      Serial.printf("[sensors] Dipòsit %d (binary %d pins): periId=%d\n", tc.id, psCount, periId);
+      for (int p = 0; p < psCount; p++) Serial.printf("  pin%d=%d\n", p, pinStates[p]);
+      mqttClient.publishTankBinary(tc.id, periId, pinStates, psCount);
+    } else {
+      TankLevel lvl = tankSensors[i]->read();
+      Serial.printf("[sensors] Dipòsit %d: raw=%.1f pct=%.1f estat=%s\n",
+                    tc.id, lvl.rawValue, lvl.levelPct, lvl.state);
+      mqttClient.publishTank(tc.id, lvl.rawValue, lvl.levelPct, lvl.state);
+    }
   }
 }
 

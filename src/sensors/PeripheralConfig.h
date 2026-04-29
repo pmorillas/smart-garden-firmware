@@ -29,6 +29,13 @@ enum class AggregationMode : uint8_t {
 static constexpr uint8_t PIN_UNSET = 255;
 
 static constexpr int MAX_SOIL_PER_ZONE = 8;
+static constexpr int MAX_FLOAT_PINS    = 4;
+
+struct FloatPin {
+  uint8_t gpio     = PIN_UNSET;
+  uint8_t levelPct = 0;    // water level when this pin is active (0–100)
+  uint8_t mode     = 0;    // 0=pullup (active LOW), 1=pulldown (active HIGH)
+};
 
 struct PeripheralConfig {
   uint8_t        id          = 0;
@@ -40,6 +47,9 @@ struct PeripheralConfig {
   int            calEmpty    = 0;  // dry/empty calibration (ADC raw or distance cm)
   int            calFull     = 0;  // wet/full  calibration (ADC raw or distance cm)
   char           name[24]    = {};
+  // FLOAT_BINARY N-pin configuration (from extra_config.pins)
+  FloatPin       floatPins[MAX_FLOAT_PINS] = {};
+  uint8_t        floatPinCount = 0;
 };
 
 PeripheralType  peripheralTypeFromStr(const char* s);
