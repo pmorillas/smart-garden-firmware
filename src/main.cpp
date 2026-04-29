@@ -39,13 +39,13 @@ static void publishAllSensors() {
 
   for (int i = 0; i < numZones; i++) {
     const ZoneConfig& z = zoneManager.zone(i);
-    float vals[MAX_SOIL_PER_ZONE];
-    int   cnt = soilSensors[i]->readAllPct(vals, MAX_SOIL_PER_ZONE);
+    int rawVals[MAX_SOIL_PER_ZONE];
+    int cnt = soilSensors[i]->readAllRaw(rawVals, MAX_SOIL_PER_ZONE);
     if (cnt == 0) continue;
     Serial.printf("[sensors] Zona %d:", z.id);
-    for (int s = 0; s < cnt; s++) Serial.printf(" s%d=%.1f%%", s + 1, vals[s]);
+    for (int s = 0; s < cnt; s++) Serial.printf(" s%d=%d", s + 1, rawVals[s]);
     Serial.println();
-    mqttClient.publishSoil(z.id, vals, cnt);
+    mqttClient.publishSoil(z.id, rawVals, cnt);
   }
 
   float temp   = ambientSensor.readTemperature();

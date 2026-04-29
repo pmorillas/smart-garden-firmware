@@ -141,10 +141,12 @@ Si perd la connexió WiFi o MQTT:
 
 ## Format JSON dels missatges
 
-**Publica (soil):**
+**Publica (soil) — des de v1.4.0:**
 ```json
-{"zone_id": 1, "values": [42], "unit": "percent", "mac": "AA:BB:...", "timestamp": 1714123456}
+{"zone_id": 1, "raw_values": [2100, 1950], "mac": "AA:BB:...", "timestamp": 1714123456}
 ```
+Publica valors ADC crus (0–4095). El backend aplica el calibratge.
+Calibration parameters (`cal_empty`/`cal_full`) ja no s'envien al firmware.
 
 **Publica (ambient):**
 ```json

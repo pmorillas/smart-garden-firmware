@@ -71,16 +71,15 @@ void MqttClient::publishRegister() {
   Serial.printf("[MQTT] Registre publicat: MAC=%s\n", WiFi.macAddress().c_str());
 }
 
-void MqttClient::publishSoil(int zoneId, const float* values, int count) {
+void MqttClient::publishSoil(int zoneId, const int* rawValues, int count) {
   JsonDocument doc;
   doc["zone_id"] = zoneId;
-  JsonArray arr  = doc["values"].to<JsonArray>();
-  for (int i = 0; i < count; i++) arr.add(values[i]);
-  doc["unit"]      = "percent";
+  JsonArray arr  = doc["raw_values"].to<JsonArray>();
+  for (int i = 0; i < count; i++) arr.add(rawValues[i]);
   doc["mac"]       = WiFi.macAddress();
   doc["timestamp"] = millis() / 1000;
 
-  char buf[192];
+  char buf[256];
   serializeJson(doc, buf);
   char topic[48];
   snprintf(topic, sizeof(topic), "smartgarden/sensors/soil/%d", zoneId);

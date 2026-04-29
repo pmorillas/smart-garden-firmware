@@ -18,7 +18,7 @@ public:
   void setTankManager(TankManager* tm);
   void setPeripheralRegistry(PeripheralRegistry* pr);
   void setSensorReadCallback(void (*fn)());
-  void publishSoil(int zoneId, const float* values, int count);
+  void publishSoil(int zoneId, const int* rawValues, int count);
   void publishAmbient(float tempC, float humidityPct, float lightLux);
   void publishTank(int tankId, float rawValue, float levelPct, const char* state);
   void publishRegister();
