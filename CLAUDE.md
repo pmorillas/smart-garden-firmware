@@ -148,6 +148,17 @@ Si perd la connexió WiFi o MQTT:
 Publica valors ADC crus (0–4095). El backend aplica el calibratge.
 Calibration parameters (`cal_empty`/`cal_full`) ja no s'envien al firmware.
 
+**Publica (tank — FLOAT_BINARY N-pins, des de v1.5.0):**
+```json
+{"peripheral_id": 3, "pin_states": [0, 1, 0], "mac": "AA:BB:...", "timestamp": 1714123456}
+```
+`pin_states` alineat amb `extra_config.pins`. Backend interpreta mode pullup/pulldown i calcula level_pct.
+
+**Publica (tank — HC_SR04 / llegat):**
+```json
+{"raw_value": 25.3, "level_pct": 70.0, "state": "ok", "mac": "AA:BB:...", "timestamp": 1714123456}
+```
+
 **Publica (ambient):**
 ```json
 {"temp": 22.5, "humidity": 60.2, "light_lux": 1200, "unit_temp": "celsius", "mac": "AA:BB:...", "timestamp": 1714123456}
